@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OK(CL) WatchCheck · siet vagy késik?</title>
+<script async src="https://docs.opencv.org/4.9.0/opencv.js" onload="onCvReady()" onerror="onCvFail()"></script>
+<style>
+  :root{
+    --dial:#0b2a6b;          /* Yema mélykék számlap */
+    --dial-lo:#061b47;
+    --bezel:#122a52;
+    --lume:#e8e4d6;          /* öreg-lume krém */
+    --lume-dim:#b9b39c;
+    --steel:#c9ced6;
+    --steel-lo:#8a919c;
+    --red:#d1362f;           /* másodpercmutató hegye */
+    --ink:#eef1f6;
+    --ink-dim:#9aa6bd;
+    --line:#24365f;
+    --ok:#3fae7a;
+    --warn:#e0a53d;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:
+     radial-gradient(120% 80% at 50% -10%, #123a6b 0%, transparent 60%),
+     linear-gradient(180deg,#04122e 0%,#02060f 100%);
+     background-color:#02060f;
+     color:var(--ink);
+     font-family:"Helvetica Neue",Arial,sans-serif;
+     -webkit-font-smoothing:antialiased;
+     min-height:100vh;
+  }
+  .wrap{max-width:640px;margin:0 auto;padding:28px 20px 64px}
+  header{display:flex;flex-direction:column;gap:12px;border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:24px}
+  .titlerow{display:flex;align-items:center;gap:12px}
+  .logo{width:22px;height:22px;flex:0 0 auto}
+  h1{font-size:20px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;margin:0;white-space:nowrap}
+  .cmark{font-size:11px;vertical-align:super;letter-spacing:.05em;color:var(--ink-dim)}
+  .timesrow{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+  .hleft{display:flex;flex-direction:column;gap:1px;line-height:1.25}
+  .hleft .hrow i{width:44px}
+  .sub{color:var(--ink-dim);font-size:12px;letter-spacing:.05em;margin-left:auto;
+    display:flex;flex-direction:column;align-items:flex-end;gap:1px;line-height:1.25;text-transform:none}
+  .hrow{display:flex;gap:7px;align-items:baseline;white-space:nowrap}
+  .hrow i{font-style:normal;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim);opacity:.8}
+  .hrow b{font-weight:600;font-variant-numeric:tabular-nums;font-size:12px;color:var(--ink)}
+  #hdrdrift{transition:color .15s}
+
+  .intake{display:flex;gap:12px}
+  .intake.small .drop{padding:12px}
+  .intake.small .drop p{display:none}
+  .drop{
+    flex:1;
+    border:1px dashed var(--line);border-radius:14px;
+    background:linear-gradient(180deg,rgba(18,42,82,.35),rgba(6,20,55,.15));
+    padding:28px 14px;text-align:center;cursor:pointer;transition:.18s;display:block;
+  }
+  .drop:hover{border-color:#3a5aa0;background:rgba(18,42,82,.55)}
+  .drop b{letter-spacing:.06em}
+  .drop p{color:var(--ink-dim);font-size:12px;margin:8px 0 0}
+  input[type=file]{display:none}
+
+  .zoombar{position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:8px;z-index:2}
+  .zoombar button{width:38px;height:38px;border-radius:9px;border:1px solid #35558f;
+    background:rgba(9,25,60,.85);color:var(--ink);font-size:18px;cursor:pointer;line-height:1}
+  .zoombar button:active{background:#1c3a6b}
+
+  .stage{margin-top:24px;display:none}
+  .stage.on{display:block}
+  .canvas-holder{position:relative;border-radius:12px;overflow:hidden;background:#000;line-height:0;border:1px solid var(--line)}
+  canvas{max-width:100%;display:block;touch-action:none}
+
+  .hint{font-size:12px;color:var(--ink-dim);letter-spacing:.04em;margin:12px 2px 0;line-height:1.5}
+  .legend{display:flex;gap:16px;margin:14px 2px 0;flex-wrap:wrap}
+  .legend span{font-size:12px;letter-spacing:.06em;display:flex;align-items:center;gap:7px;color:var(--ink-dim)}
+  .dot{width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 2px rgba(0,0,0,.4)}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:24px}
+  .card{background:linear-gradient(180deg,rgba(11,42,107,.35),rgba(6,20,55,.2));border:1px solid var(--line);border-radius:12px;padding:16px}
+  .card .k{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-dim)}
+  .card .v{font-size:26px;font-variant-numeric:tabular-nums;margin-top:8px;letter-spacing:.02em}
+  .card .v.mono{font-family:"SF Mono",ui-monospace,Menlo,monospace}
+
+  .verdict{margin-top:14px;border-radius:12px;padding:20px;text-align:center;border:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(11,42,107,.4),rgba(6,20,55,.25))}
+  .verdict .big{font-size:40px;font-variant-numeric:tabular-nums;font-weight:600;letter-spacing:.01em}
+  .verdict .lbl{font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:6px}
+  .verdict .note{font-size:13px;color:var(--ink-dim);margin-top:8px}
+  .verdict.ahead .big{color:var(--warn)}
+  .verdict.behind .big{color:#6fb2ff}
+  .verdict.spot .big{color:var(--ok)}
+
+  .rowset{margin-top:22px;border-top:1px solid var(--line);padding-top:18px}
+  .rowset h2{font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-dim);margin:0 0 14px}
+  .ctrl{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .ctrl label{width:64px;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim)}
+  .ctrl input[type=range]{flex:1;accent-color:#4a78d0}
+  .ctrl .val{width:44px;text-align:right;font-variant-numeric:tabular-nums;font-family:"SF Mono",ui-monospace,monospace;font-size:15px}
+
+  .actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+  button.btn{appearance:none;border:1px solid #35558f;background:linear-gradient(180deg,#1c3a6b,#0d2350);
+    color:var(--ink);padding:11px 18px;border-radius:9px;letter-spacing:.08em;text-transform:uppercase;font-size:12px;cursor:pointer;transition:.15s}
+  button.btn:hover{border-color:#5a82c8;background:linear-gradient(180deg,#264a86,#12305f)}
+  button.btn.ghost{background:transparent;border-color:var(--line);color:var(--ink-dim)}
+  .status{font-size:12px;color:var(--ink-dim);letter-spacing:.06em;margin-top:14px;min-height:16px}
+  .exif-warn{color:var(--warn)}
+  #cdOverlay{position:absolute;inset:0;display:none;z-index:3;
+    background:rgba(2,8,22,.82);backdrop-filter:blur(2px);
+    flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center}
+  #cdOverlay.on{display:flex}
+  #cdTitle{font-size:11px;letter-spacing:.3em;color:var(--ink-dim);text-transform:uppercase}
+  #cdNum{font-size:64px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink);line-height:1}
+  #cdNum.go{color:var(--ok)}
+  #cdSub{font-size:13px;color:var(--ink-dim);max-width:80%;line-height:1.5}
+  #cdBtns{display:none;gap:10px;flex-wrap:wrap;justify-content:center}
+  #cdBtns.on{display:flex}
+  .logbox{
+    font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+    font-size:12.5px;line-height:1.7;color:var(--ink);
+    background:rgba(4,14,36,.6);border:1px solid var(--line);border-radius:10px;
+    padding:12px 14px;margin:0 0 12px;
+    max-height:190px;overflow-y:auto;white-space:pre;
+  }
+  .logbox .rate{color:var(--warn)}
+  footer{margin-top:40px;font-size:11px;color:#4a5568;letter-spacing:.1em;text-align:center;text-transform:uppercase}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="titlerow">
+      <svg class="logo" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="1.6">
+        <circle cx="12" cy="12" r="9.2" stroke="var(--steel)"/>
+        <path d="M12 7v5l3.2 2" stroke="var(--red)" stroke-linecap="round"/>
+      </svg>
+      <h1>OK<span class="cmark">(CL)</span> WATCHCHECK</h1>
+    </div>
+    <div class="timesrow">
+      <div class="hleft">
+        <span class="hrow"><i>most</i><b id="hdrnow">–</b></span>
+        <span class="hrow"><i>Δ most</i><b id="hdrdriftm">–</b></span>
+      </div>
+      <span class="sub">
+        <span class="hrow"><i>óra</i><b id="hdrshown">–</b></span>
+        <span class="hrow"><i>kép</i><b id="hdrtime">–</b></span>
+        <span class="hrow"><i>Δ kép</i><b id="hdrdrift">–</b></span>
+      </span>
+    </div>
+  </header>
+
+  <div class="intake" id="drop">
+    <label class="drop half">
+      <b>📷 Fotó készítése</b>
+      <p>kamera nyílik, a kép ideje = most</p>
+      <input type="file" id="fileCam" accept="image/*" capture="environment">
+    </label>
+    <label class="drop half">
+      <b>🖼 Kép választása</b>
+      <p>galéria / fájlok · EXIF időbélyeggel</p>
+      <input type="file" id="file" accept="image/*">
+    </label>
+  </div>
+
+  <div class="status" id="cvstatus">OpenCV betöltése…</div>
+
+  <div class="stage" id="stage">
+    <div class="canvas-holder">
+      <div class="zoombar">
+        <button id="zin" aria-label="Nagyítás">+</button>
+        <button id="zout" aria-label="Kicsinyítés">−</button>
+        <button id="zfit" aria-label="Teljes nézet">⤢</button>
+        <button id="mic" aria-label="Idő bemondása">🎤</button>
+        <button id="setw" aria-label="Óra beállítása">⏱</button>
+      </div>
+      <div id="cdOverlay">
+        <div id="cdTitle">BEÁLLÍTÁS</div>
+        <div id="cdNum">–</div>
+        <div id="cdSub"></div>
+        <div id="cdBtns">
+          <button class="btn" id="cdBase">Új alap: napló törlés + 0 mp</button>
+          <button class="btn ghost" id="cdClose">Bezár</button>
+        </div>
+      </div>
+      <canvas id="cv"></canvas>
+    </div>
+    <div class="legend">
+      <span><i class="dot" style="background:#ff5b52"></i>másodperc</span>
+      <span><i class="dot" style="background:#ffd24a"></i>perc</span>
+      <span><i class="dot" style="background:#5aa8ff"></i>óra</span>
+      <span style="margin-left:auto">gyűrű: piros pötty a 12-esre, fehér a tengelyre</span>
+    </div>
+
+    <div class="rowset" style="display:none">
+      <h2>Leolvasott idő (kézi finomhangolás)</h2>
+      <div class="ctrl"><label>Óra</label><input type="range" id="rH" min="0" max="11" step="1"><span class="val" id="vH">0</span></div>
+      <div class="ctrl"><label>Perc</label><input type="range" id="rM" min="0" max="59" step="1"><span class="val" id="vM">0</span></div>
+      <div class="ctrl"><label>Mp</label><input type="range" id="rS" min="0" max="59" step="1"><span class="val" id="vS">0</span></div>
+    </div>
+
+    <div class="grid">
+      <div class="card"><div class="k">Órán olvasható</div><div class="v mono" id="shown">–</div></div>
+      <div class="card"><div class="k">Kép készült (EXIF)</div><div class="v mono" id="taken">–</div></div>
+    </div>
+
+    <div class="verdict" id="verdict">
+      <div class="lbl">Eltérés</div>
+      <div class="big" id="diff">–</div>
+      <div class="note" id="diffnote">Tölts be egy képet EXIF időbélyeggel az összevetéshez.</div>
+    </div>
+
+    <div class="actions">
+      <button class="btn" id="logadd">Naplóba ment</button>
+      <button class="btn" id="save">Mentés képként</button>
+      <button class="btn" id="reauto">Pontos időre</button>
+      <button class="btn ghost" id="reset">Másik kép</button>
+    </div>
+
+    <div class="rowset">
+      <h2>Mérésnapló</h2>
+      <pre id="log" class="logbox">még nincs mentett mérés</pre>
+      <div class="actions">
+        <button class="btn ghost" id="logdl">Letöltés .txt</button>
+        <button class="btn ghost" id="logclr">Napló törlése</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>minden feldolgozás helyben történik</footer>
+</div>
+
+<script>
+let cvReady=false, img=null, exifDate=null;
+let canvas=document.getElementById('cv'), ctx=canvas.getContext('2d');
+let cx=0, cy=0, R=0;                     // számlap középpont + sugár
+let hands={s:null,m:null,h:null};        // mutatóhegyek {x,y} canvas-koordinátában
+let rot=0;                                // számlap elforgatása fokban (döntött fotóhoz)
+let dragging=null;
+const DPR=Math.min(window.devicePixelRatio||1,2);
+
+function onCvReady(){ cvReady=true; setStatus(''); }
+function onCvFail(){ cvReady=false; setStatus('OpenCV nem tölthető be – az auto-detektálás kimarad, kézzel állítsd be a mutatókat.',true); }
+function setStatus(t,warn){ const el=document.getElementById('cvstatus'); el.textContent=t; el.className='status'+(warn?' exif-warn':''); }
+
+// ---------- fájl beolvasás ----------
+const drop=document.getElementById('drop'), fileInput=document.getElementById('file'), camInput=document.getElementById('fileCam');
+;['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault()}));
+;['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault()}));
+drop.addEventListener('drop',ev=>{ if(ev.dataTransfer.files[0]) loadFile(ev.dataTransfer.files[0]); });
+fileInput.addEventListener('change',ev=>{ if(ev.target.files[0]) loadFile(ev.target.files[0]); ev.target.value=''; });
+camInput.addEventListener('change',ev=>{ if(ev.target.files[0]) loadFile(ev.target.files[0]); ev.target.value=''; });
+
+function loadFile(f){
+  exifDate=null;
+  setStatus('Kép betöltése…');
+  const reader=new FileReader();
+  reader.onload=()=>{ try{ exifDate=parseExifDate(reader.result); }catch(e){ exifDate=null; }
+    if(!exifDate && f.lastModified){
+      const d=new Date(f.lastModified);
+      exifDate={
+        txt:`${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} (fájl ideje)`,
+        sec:d.getHours()*3600+d.getMinutes()*60+d.getSeconds()
+      };
+    }
+    afterExif(f); };
+  reader.onerror=()=>afterExif(f);
+  reader.readAsArrayBuffer(f.slice(0,256*1024));
+}
+// Az EXIF a dátumot ASCII-ként tárolja: "YYYY:MM:DD HH:MM:SS".
+// A fájl első 256 KB-jában megkeressük az első ilyen mintát.
+function parseExifDate(buf){
+  const bytes=new Uint8Array(buf);
+  const parts=[];
+  for(let i=0;i<bytes.length;i+=8192){
+    parts.push(String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i+8192, bytes.length))));
+  }
+  const s=parts.join('');
+  const m=s.match(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+  if(!m) return null;
+  return {
+    txt:`${m[1]}.${m[2]}.${m[3]} ${m[4]}:${m[5]}:${m[6]}`,
+    sec:(+m[4])*3600+(+m[5])*60+(+m[6])
+  };
+}
+function afterExif(f){
+  // gyors út: natív dekódolás; a munkakép canvas marad (nincs JPEG-újrakódolás)
+  const MAX=1400;
+  const toWorkCanvas=(src,w,h)=>{
+    const k=Math.min(1, MAX/Math.max(w,h));
+    const c=document.createElement('canvas');
+    c.width=Math.round(w*k); c.height=Math.round(h*k);
+    c.getContext('2d').drawImage(src,0,0,c.width,c.height);
+    return c;
+  };
+  if(window.createImageBitmap){
+    createImageBitmap(f).then(bmp=>{
+      img=toWorkCanvas(bmp,bmp.width,bmp.height);
+      bmp.close && bmp.close();
+      proceed();
+    }).catch(()=>legacyLoad(f));
+  }else legacyLoad(f);
+  function legacyLoad(f){
+    const r2=new FileReader();
+    r2.onload=()=>{
+      const raw=new Image();
+      raw.onload=()=>{ img=toWorkCanvas(raw,raw.width,raw.height); proceed(); };
+      raw.onerror=()=>setStatus('A képet nem sikerült dekódolni. Fájl: '+f.name+' · típus: '+(f.type||'ismeretlen')+' · méret: '+Math.round(f.size/1024)+' KB',true);
+      raw.src=r2.result;
+    };
+    r2.onerror=()=>setStatus('A fájl beolvasása nem sikerült (FileReader hiba).',true);
+    r2.readAsDataURL(f);
+  }
+}
+function proceed(){
+  cropToDial(()=>{
+    document.getElementById('stage').classList.add('on');
+    drop.classList.add('small');
+    setupCanvas();
+    redraw();
+    setStatus('Számlap és mutatók keresése…');
+    setTimeout(autoDetect,60);
+  });
+}
+// négyzetes vágás a számlap köré; a körkeresés kicsinyített (~700 px) másolaton fut
+let dialHint=null; // a vágott képen ismert kör: {cx,cy,r}
+function cropToDial(done){
+  dialHint=null;
+  let x=img.width/2, y=img.height/2, r=Math.min(img.width,img.height)/2;
+  if(cvReady && typeof cv!=='undefined' && cv.imread){
+    try{
+      const HS=700, hk=Math.min(1, HS/Math.max(img.width,img.height));
+      const small=document.createElement('canvas');
+      small.width=Math.round(img.width*hk); small.height=Math.round(img.height*hk);
+      small.getContext('2d').drawImage(img,0,0,small.width,small.height);
+      let src=cv.imread(small), gray=new cv.Mat();
+      cv.cvtColor(src,gray,cv.COLOR_RGBA2GRAY);
+      cv.medianBlur(gray,gray,5);
+      let circles=new cv.Mat();
+      cv.HoughCircles(gray,circles,cv.HOUGH_GRADIENT,1,gray.rows/2,
+        100,40, Math.floor(Math.min(gray.rows,gray.cols)*0.18), Math.floor(Math.min(gray.rows,gray.cols)*0.5));
+      let best=null;
+      for(let i=0;i<circles.cols;i++){
+        let bx=circles.data32F[i*3],by=circles.data32F[i*3+1],br=circles.data32F[i*3+2];
+        let d=Math.hypot(bx-gray.cols/2,by-gray.rows/2);
+        let score=br-d*0.6;
+        if(!best||score>best.score) best={x:bx,y:by,r:br,score};
+      }
+      if(best){ x=best.x/hk; y=best.y/hk; r=best.r/hk; } // vissza teljes méretre
+      src.delete();gray.delete();circles.delete();
+    }catch(e){/* marad a középső négyzet */}
+  }
+  const half=Math.round(Math.min(r*1.45, Math.min(x, y, img.width-x, img.height-y, Math.min(img.width,img.height)/2)));
+  const cxp=Math.round(x), cyp=Math.round(y);
+  const off=document.createElement('canvas');
+  off.width=off.height=half*2;
+  off.getContext('2d').drawImage(img, cxp-half, cyp-half, half*2, half*2, 0, 0, half*2, half*2);
+  dialHint={cx:half, cy:half, r:Math.min(r, half*0.95)};
+  img=off; // canvas marad, nincs újrakódolás
+  done();
+}
+
+function setupCanvas(){
+  view={z:1,tx:0,ty:0};
+  const holder=document.querySelector('.canvas-holder');
+  const avail=holder.clientWidth || (document.querySelector('.wrap').clientWidth-42);
+  const maxW=Math.min(600, avail);
+  const scale=maxW/img.width;
+  canvas.style.width=maxW+'px';
+  canvas.width=Math.round(img.width*scale*DPR);
+  canvas.height=Math.round(img.height*scale*DPR);
+  canvas.style.height=Math.round(img.height*scale)+'px';
+}
+
+// ---------- automatikus detektálás ----------
+// 12 órás "óralap" formátum: 12:00:00 – 11:59:59
+function fmt12(sec){
+  let h=Math.floor(sec/3600)%12; if(h===0)h=12;
+  return `${pad(h)}:${pad(Math.floor(sec/60)%60)}:${pad(Math.round(sec%60)%60)}`;
+}
+// prognózis a naplóból: utolsó mért eltérés + utolsó ráta * eltelt idő
+function predictedDiff(){
+  const list=loadLog(); if(!list.length) return 0;
+  const last=list[list.length-1];
+  let rate=0;
+  if(list.length>=2){
+    const prev=list[list.length-2];
+    const days=(last.epoch-prev.epoch)/86400000;
+    if(days>0.02) rate=(last.diff-prev.diff)/days;
+  }
+  const days=(exifEpoch()-last.epoch)/86400000;
+  if(days<0 || days>60) return last.diff; // védőkorlát értelmetlen extrapoláció ellen
+  return Math.round(last.diff + rate*days);
+}
+function autoDetect(){
+  rot=0;
+  // mutatók a PROGNOSZTIZÁLT állásra: pontos idő + a naplóból becsült eltérés
+  if(dialHint){ cx=dialHint.cx; cy=dialHint.cy; R=dialHint.r*0.82; }
+  else { cx=img.width/2; cy=img.height/2; R=Math.min(img.width,img.height)*0.34; }
+  let base;
+  if(exifDate) base=exifDate.sec;
+  else { const d=new Date(); base=d.getHours()*3600+d.getMinutes()*60+d.getSeconds(); }
+  const pred=predictedDiff();
+  const t=((base+pred)%86400+86400)%86400;
+  setHandsFromTime(Math.floor(t/3600)%12, Math.floor(t/60)%60, Math.round(t%60));
+  setStatus(pred!==0
+    ? `A mutatók a napló alapján várható álláson (${fmtDiff(pred)}) — igazítsd a tényleges álláshoz.`
+    : 'A mutatók a pontos időn állnak — igazítsd őket oda, amit az óra ténylegesen mutat.');
+  syncSlidersFromHands(); redraw(); recompute();
+}
+
+
+// ---------- idő <-> geometria ----------
+function angleOf(pt){ // 12 óra = 0 a számlapon, rot figyelembevételével
+  let a=Math.atan2(pt.y-cy, pt.x-cx)*180/Math.PI; // 0 = jobbra (3 óra)
+  a=(a+90-rot+720)%360; return a;
+}
+function readTime(){
+  let sa=angleOf(hands.s), ma=angleOf(hands.m), ha=angleOf(hands.h);
+  let s=Math.round(sa/6)%60;
+  // a percmutató s/60-nyit már túlhaladt a percjelen — ezt levonva kerekítünk
+  let m=((Math.round(ma/6 - s/60)%60)+60)%60;
+  // az óramutató m/60-nyit haladt túl az óraosztáson
+  let h=((Math.round(ha/30 - m/60)%12)+12)%12;
+  return {h,m,s};
+}
+// óraszög (0° = 12 óra a számlapon, rot-tal elforgatva) -> pont a képen
+function tip(angDeg,len){ const r=(angDeg+rot-90)*Math.PI/180; return {x:cx+Math.cos(r)*len, y:cy+Math.sin(r)*len}; }
+function setHandsFromTime(h,m,s){
+  hands.h=tip((h%12)*30+m*0.5, R*0.5);
+  hands.m=tip(m*6+s*0.1, R*0.72);
+  hands.s=tip(s*6, R*0.88);
+}
+
+// ---------- rajz ----------
+// nézet: nagyítás + eltolás (canvas-pixelben)
+let view={z:1,tx:0,ty:0};
+function clampView(){
+  view.z=Math.min(8,Math.max(1,view.z));
+  const w=canvas.width,h=canvas.height;
+  view.tx=Math.min(0,Math.max(w-w*view.z,view.tx));
+  view.ty=Math.min(0,Math.max(h-h*view.z,view.ty));
+  if(view.z===1){view.tx=0;view.ty=0;}
+}
+function zoomAt(px,py,factor){ // px,py canvas-pixelben
+  const nz=Math.min(8,Math.max(1,view.z*factor));
+  view.tx=px-(px-view.tx)*(nz/view.z);
+  view.ty=py-(py-view.ty)*(nz/view.z);
+  view.z=nz; clampView(); redraw();
+}
+function sx(x){ return x*(canvas.width/img.width); }
+function sy(y){ return y*(canvas.height/img.height); }
+function redraw(){
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.setTransform(view.z,0,0,view.z,view.tx,view.ty);
+  ctx.drawImage(img,0,0,canvas.width,canvas.height);
+  const lw=1.5*DPR/view.z;
+  ctx.lineWidth=lw; ctx.strokeStyle='rgba(255,255,255,.25)';
+  ctx.beginPath();ctx.arc(sx(cx),sy(cy),sx(R),0,7);ctx.stroke();
+  // percpozíció-gyűrű: 60 osztás, rot-tal együtt forog; a piros 12-es és a középpont húzható
+  for(let i=0;i<60;i++){
+    const p=tip(i*6, R*1.03);
+    const px=sx(p.x), py=sy(p.y);
+    const major=(i%5===0);
+    ctx.fillStyle= i===0 ? 'rgba(255,91,82,.95)' : (major?'rgba(255,255,255,.85)':'rgba(255,255,255,.45)');
+    ctx.beginPath();ctx.arc(px,py,((i===0?4.5:(major?2.6:1.5)))*DPR/view.z,0,7);ctx.fill();
+    if(i===0){ ctx.strokeStyle='rgba(0,0,0,.5)';ctx.lineWidth=1.5*DPR/view.z;ctx.stroke(); }
+  }
+  ctx.fillStyle='rgba(255,255,255,.85)';ctx.beginPath();ctx.arc(sx(cx),sy(cy),4.5*DPR/view.z,0,7);ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,.5)';ctx.lineWidth=1.5*DPR/view.z;ctx.stroke();
+  // forgatókar: a 12-es piros pontból sugárirányban kiálló fogantyú, tangenciális nyilakkal
+  {
+    const base=tip(0,R*1.05), knob=tip(0,R*1.30);
+    ctx.strokeStyle='rgba(255,91,82,.9)';ctx.lineWidth=2.5*DPR/view.z;
+    ctx.beginPath();ctx.moveTo(sx(base.x),sy(base.y));ctx.lineTo(sx(knob.x),sy(knob.y));ctx.stroke();
+    ctx.fillStyle='rgba(255,91,82,.95)';
+    ctx.beginPath();ctx.arc(sx(knob.x),sy(knob.y),8*DPR/view.z,0,7);ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,.55)';ctx.lineWidth=1.5*DPR/view.z;ctx.stroke();
+    // két kis nyílhegy a forgatás irányaiba (a kar tetején, érintő irányban)
+    const ah=(da,sign)=>{ // da: fok eltolás a 12-től; sign: nyílhegy iránya
+      const p1=tip(da,R*1.30), p2=tip(da+sign*3.2,R*1.30);
+      const px1=sx(p1.x),py1=sy(p1.y),px2=sx(p2.x),py2=sy(p2.y);
+      const dx=px2-px1,dy=py2-py1,L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L;
+      const s=6*DPR/view.z;
+      ctx.beginPath();
+      ctx.moveTo(px2,py2);
+      ctx.lineTo(px2-ux*s-uy*s*0.6, py2-uy*s+ux*s*0.6);
+      ctx.lineTo(px2-ux*s+uy*s*0.6, py2-uy*s-ux*s*0.6);
+      ctx.closePath();ctx.fillStyle='rgba(255,91,82,.95)';ctx.fill();
+    };
+    ah(-6,-1); ah(6,1);
+    // vékony összekötő ív a nyílhegyek közt
+    ctx.strokeStyle='rgba(255,91,82,.7)';ctx.lineWidth=1.8*DPR/view.z;
+    ctx.beginPath();ctx.arc(sx(cx),sy(cy),sx(R*1.30),(rot-90-6)*Math.PI/180,(rot-90+6)*Math.PI/180);ctx.stroke();
+  }
+  drawHand(hands.h,'#5aa8ff'); drawHand(hands.m,'#ffd24a'); drawHand(hands.s,'#ff5b52');
+  ctx.setTransform(1,0,0,1,0,0);
+}
+function drawHand(pt,col){
+  if(!pt)return;
+  ctx.strokeStyle=col;ctx.lineWidth=2*DPR/view.z;ctx.globalAlpha=.85;
+  ctx.beginPath();ctx.moveTo(sx(cx),sy(cy));ctx.lineTo(sx(pt.x),sy(pt.y));ctx.stroke();
+  ctx.globalAlpha=1;ctx.fillStyle=col;
+  ctx.beginPath();ctx.arc(sx(pt.x),sy(pt.y),7*DPR/view.z,0,7);ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,.5)';ctx.lineWidth=2*DPR/view.z;ctx.stroke();
+}
+
+// ---------- interakció: pöttyhúzás + nagyítás/pásztázás ----------
+function clientToCanvas(cxp,cyp){
+  const r=canvas.getBoundingClientRect();
+  return {x:(cxp-r.left)*(canvas.width/r.width), y:(cyp-r.top)*(canvas.height/r.height)};
+}
+function canvasToImg(p){ // nézet-transzformáció visszabontása
+  const bx=(p.x-view.tx)/view.z, by=(p.y-view.ty)/view.z;
+  return {x:bx*(img.width/canvas.width), y:by*(img.height/canvas.height)};
+}
+function evtPt(e){
+  const t=e.touches?e.touches[0]:e;
+  return canvasToImg(clientToCanvas(t.clientX,t.clientY));
+}
+function pick(p){
+  // találati sugár: kb. 34 képernyő-pixel, kép-koordinátára váltva
+  const hit=34*(canvas.width/canvas.getBoundingClientRect().width)/view.z*(img.width/canvas.width);
+  // előbb a gyűrű fogópontjai (kisebb találati mezővel), aztán a mutatók
+  const knob=tip(0,R*1.30);
+  if(Math.hypot(knob.x-p.x,knob.y-p.y)<hit*0.8) return 'r';
+  const t12=tip(0,R*1.03);
+  if(Math.hypot(t12.x-p.x,t12.y-p.y)<hit*0.6) return 't';
+  if(Math.hypot(cx-p.x,cy-p.y)<hit*0.6) return 'c';
+  let best=null,bd=1e9;
+  for(let k of ['s','m','h']){ if(!hands[k])continue;
+    let d=Math.hypot(hands[k].x-p.x,hands[k].y-p.y); if(d<bd){bd=d;best=k;} }
+  return bd<hit ? best : null;
+}
+// gyűrű-igazítás: az idő nem változhat, csak a geometria
+function reseatHands(){
+  setHandsFromTime(+rH.value,+rM.value,+rS.value);
+}
+let panning=null, pinch=null;
+function down(e){
+  if(e.touches && e.touches.length===2){ // csippentés indul
+    dragging=null; panning=null;
+    const a=clientToCanvas(e.touches[0].clientX,e.touches[0].clientY);
+    const b=clientToCanvas(e.touches[1].clientX,e.touches[1].clientY);
+    pinch={d:Math.hypot(a.x-b.x,a.y-b.y), mx:(a.x+b.x)/2, my:(a.y+b.y)/2, z:view.z, tx:view.tx, ty:view.ty};
+    e.preventDefault(); return;
+  }
+  e.preventDefault();
+  const p=evtPt(e);
+  dragging=pick(p);
+  if(dragging==='c'){ cx=p.x; cy=p.y; reseatHands(); redraw(); }
+  else if(dragging==='r'){
+    R=Math.hypot(p.x-cx,p.y-cy)/1.30;
+    rot=(Math.atan2(p.y-cy,p.x-cx)*180/Math.PI+90+720)%360;
+    reseatHands(); redraw();
+  }
+  else if(dragging==='t'){
+    R=Math.hypot(p.x-cx,p.y-cy)/1.03;
+    rot=(Math.atan2(p.y-cy,p.x-cx)*180/Math.PI+90+720)%360;
+    reseatHands(); redraw();
+  }
+  else if(dragging){ hands[dragging]=p; syncSlidersFromHands(); redraw(); recompute(); }
+  else if(view.z>1){ // üres területen: pásztázás
+    const c=clientToCanvas((e.touches?e.touches[0]:e).clientX,(e.touches?e.touches[0]:e).clientY);
+    panning={sx:c.x,sy:c.y,tx:view.tx,ty:view.ty};
+  }
+}
+function move(e){
+  if(pinch && e.touches && e.touches.length===2){
+    e.preventDefault();
+    const a=clientToCanvas(e.touches[0].clientX,e.touches[0].clientY);
+    const b=clientToCanvas(e.touches[1].clientX,e.touches[1].clientY);
+    const d=Math.hypot(a.x-b.x,a.y-b.y), mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+    const nz=Math.min(8,Math.max(1,pinch.z*(d/pinch.d)));
+    view.tx=mx-(pinch.mx-pinch.tx)*(nz/pinch.z);
+    view.ty=my-(pinch.my-pinch.ty)*(nz/pinch.z);
+    view.z=nz; clampView(); redraw(); return;
+  }
+  if(dragging){ e.preventDefault();
+    const p=evtPt(e);
+    if(dragging==='c'){ cx=p.x; cy=p.y; reseatHands(); redraw(); }
+    else if(dragging==='r'){
+      R=Math.hypot(p.x-cx,p.y-cy)/1.30;
+      rot=(Math.atan2(p.y-cy,p.x-cx)*180/Math.PI+90+720)%360;
+      reseatHands(); redraw();
+    }
+    else if(dragging==='t'){
+      R=Math.hypot(p.x-cx,p.y-cy)/1.03;
+      rot=(Math.atan2(p.y-cy,p.x-cx)*180/Math.PI+90+720)%360;
+      reseatHands(); redraw();
+    }
+    else { hands[dragging]=p; syncSlidersFromHands(); recompute(); redraw(); }
+    return;
+  }
+  if(panning){ e.preventDefault();
+    const t=e.touches?e.touches[0]:e;
+    const c=clientToCanvas(t.clientX,t.clientY);
+    view.tx=panning.tx+(c.x-panning.sx); view.ty=panning.ty+(c.y-panning.sy);
+    clampView(); redraw();
+  }
+}
+function up(e){ dragging=null; panning=null; if(!e.touches||e.touches.length<2) pinch=null; }
+canvas.addEventListener('mousedown',down);window.addEventListener('mousemove',move);window.addEventListener('mouseup',up);
+canvas.addEventListener('touchstart',down,{passive:false});canvas.addEventListener('touchmove',move,{passive:false});
+window.addEventListener('touchend',up);window.addEventListener('touchcancel',up);
+canvas.addEventListener('wheel',e=>{ e.preventDefault();
+  const c=clientToCanvas(e.clientX,e.clientY);
+  zoomAt(c.x,c.y, e.deltaY<0?1.2:1/1.2);
+},{passive:false});
+document.getElementById('zin').addEventListener('click',()=>zoomAt(canvas.width/2,canvas.height/2,1.5));
+document.getElementById('zout').addEventListener('click',()=>zoomAt(canvas.width/2,canvas.height/2,1/1.5));
+document.getElementById('zfit').addEventListener('click',()=>{view={z:1,tx:0,ty:0};redraw();});
+
+// ---------- hangbevitel: "22 óra 15 perc 14 másodperc" ----------
+const micBtn=document.getElementById('mic');
+let recog=null, listening=false;
+function parseSpokenTime(t){
+  t=t.toLowerCase().replace(/,/g,' ');
+  // számjegyek kigyűjtése; a hu-HU felismerő a számokat jellemzően számjegyként adja
+  const nums=(t.match(/\d{1,2}/g)||[]).map(Number);
+  let h=null,m=0,s=0;
+  if(nums.length>=3){ [h,m,s]=nums; }
+  else if(nums.length===2){ [h,m]=nums; }
+  else if(nums.length===1 && /óra/.test(t)){ h=nums[0]; }
+  if(h===null) return null;
+  if(h>23||m>59||s>59) return null;
+  return {h,m,s};
+}
+micBtn.addEventListener('click',()=>{
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ setStatus('Ez a böngésző nem támogatja a beszédfelismerést.',true); return; }
+  if(listening){ recog.stop(); return; }
+  recog=new SR();
+  recog.lang='hu-HU'; recog.interimResults=false; recog.maxAlternatives=3;
+  listening=true; micBtn.textContent='⏺'; setStatus('Hallgatlak… mondd: pl. „22 óra 15 perc 14 másodperc”.');
+  recog.onresult=(ev)=>{
+    let parsed=null, heard='';
+    for(const alt of ev.results[0]){
+      heard=heard||alt.transcript;
+      parsed=parseSpokenTime(alt.transcript);
+      if(parsed) { heard=alt.transcript; break; }
+    }
+    if(parsed){
+      rH.value=parsed.h%12; rM.value=parsed.m; rS.value=parsed.s;
+      document.getElementById('vH').textContent=rH.value;
+      document.getElementById('vM').textContent=rM.value;
+      document.getElementById('vS').textContent=rS.value;
+      setHandsFromTime(parsed.h%12,parsed.m,parsed.s);
+      redraw(); recompute();
+      setStatus(`Értettem: „${heard.trim()}” → ${fmt12((parsed.h%12)*3600+parsed.m*60+parsed.s)}`);
+    }else{
+      setStatus(`Nem tudtam időként értelmezni: „${heard.trim()}” — próbáld újra.`,true);
+    }
+  };
+  recog.onerror=(e)=>{ setStatus(e.error==='not-allowed'
+      ? 'Mikrofon-hozzáférés megtagadva — engedélyezd a böngészőben.'
+      : 'Beszédfelismerési hiba: '+e.error, true); };
+  recog.onend=()=>{ listening=false; micBtn.textContent='🎤'; };
+  try{ recog.start(); }catch(e){ listening=false; micBtn.textContent='🎤'; }
+});
+
+// ---------- csúszkák ----------
+const rH=document.getElementById('rH'),rM=document.getElementById('rM'),rS=document.getElementById('rS');
+[rH,rM,rS].forEach(r=>r.addEventListener('input',()=>{
+  document.getElementById('vH').textContent=rH.value;
+  document.getElementById('vM').textContent=rM.value;
+  document.getElementById('vS').textContent=rS.value;
+  setHandsFromTime(+rH.value,+rM.value,+rS.value);
+  redraw(); recompute();
+}));
+function syncSlidersFromHands(){
+  let t=readTime();
+  rH.value=t.h;rM.value=t.m;rS.value=t.s;
+  document.getElementById('vH').textContent=t.h;
+  document.getElementById('vM').textContent=t.m;
+  document.getElementById('vS').textContent=t.s;
+}
+
+// ---------- összevetés ----------
+function pad(n){return String(n).padStart(2,'0');}
+function recompute(){
+  let t={h:+rH.value,m:+rM.value,s:+rS.value};
+  const shownStr=fmt12((t.h%12)*3600+t.m*60+t.s);
+  document.getElementById('shown').textContent=shownStr;
+  document.getElementById('hdrshown').textContent=shownStr;
+  const v=document.getElementById('verdict'), diff=document.getElementById('diff'), note=document.getElementById('diffnote');
+  if(!exifDate){
+    document.getElementById('taken').textContent='nincs EXIF';
+    diff.textContent='–'; note.textContent='A képben nincs időbélyeg, csak a leolvasott idő látszik.';
+    v.className='verdict';
+    const hd0=document.getElementById('hdrdrift'); hd0.textContent='–'; hd0.style.color='';
+    document.getElementById('hdrtime').textContent='–';
+    return;
+  }
+  document.getElementById('taken').textContent=fmt12(exifDate.sec)+(exifDate.txt.includes('fájl ideje')?' *':'');
+  document.getElementById('hdrtime').textContent=fmt12(exifDate.sec);
+  // órán olvasható másodperc a napon belül; a 12-órás kétértelműséget az EXIF órájához igazítjuk
+  let shownSec=t.h*3600+t.m*60+t.s;
+  let exH=Math.floor(exifDate.sec/3600);
+  // igazítsuk a 12/24h-t: válasszuk azt a fél-napot, ami közelebb van
+  let base=Math.floor(exH/12)*12;
+  let cand=[ (base+t.h)*3600+t.m*60+t.s, (base+12+t.h)*3600+t.m*60+t.s, (base-12+t.h)*3600+t.m*60+t.s ];
+  let shown = cand.reduce((a,b)=> Math.abs(b-exifDate.sec)<Math.abs(a-exifDate.sec)?b:a );
+  let d=Math.round((shown-exifDate.sec));
+  // élő kijelzés a fejlécben pozicionálás közben, ha az eltérés 600 mp alatti
+  const hdr=document.getElementById('hdrdrift');
+  if(Math.abs(d)<600){
+    hdr.textContent=(d>0?'+':(d<0?'−':'±'))+Math.abs(d)+' mp';
+    hdr.style.color = d>0 ? 'var(--warn)' : (d<0 ? '#6fb2ff' : 'var(--ok)');
+  } else {
+    hdr.textContent='> 10 p'; hdr.style.color='';
+  }
+  let ad=Math.abs(d), sign=d>0?'+':(d<0?'−':'');
+  let mm=Math.floor(ad/60), ssv=ad%60;
+  diff.textContent = (d===0?'0 mp':`${sign}${mm?mm+' p ':''}${ssv} mp`);
+  if(ad<=2){ v.className='verdict spot'; note.textContent='Pontos – a mérési hibán belül együtt jár a képidővel.'; }
+  else if(d>0){ v.className='verdict ahead'; note.textContent=`Az óra ennyivel siet a kép készültéhez képest.`; }
+  else{ v.className='verdict behind'; note.textContent=`Az óra ennyivel késik a kép készültéhez képest.`; }
+}
+
+document.getElementById('reauto').addEventListener('click',autoDetect);
+document.getElementById('save').addEventListener('click',saveResult);
+
+// ---------- mérésnapló ----------
+const LOGKEY='watchcheck_log_v1';
+let memLog=[]; // tartalék, ha a helyi tároló nem elérhető
+function loadLog(){
+  try{ const raw=localStorage.getItem(LOGKEY); return raw?JSON.parse(raw):[]; }
+  catch(e){ return memLog; }
+}
+function persistLog(list){
+  memLog=list;
+  try{ localStorage.setItem(LOGKEY,JSON.stringify(list)); }catch(e){/* marad memóriában */}
+}
+function currentDiffSeconds(){
+  if(!exifDate) return null;
+  const t={h:+rH.value,m:+rM.value,s:+rS.value};
+  let exH=Math.floor(exifDate.sec/3600);
+  let base=Math.floor(exH/12)*12;
+  let cand=[ (base+t.h)*3600+t.m*60+t.s, (base+12+t.h)*3600+t.m*60+t.s, (base-12+t.h)*3600+t.m*60+t.s ];
+  let shown=cand.reduce((a,b)=>Math.abs(b-exifDate.sec)<Math.abs(a-exifDate.sec)?b:a);
+  return Math.round(shown-exifDate.sec);
+}
+function exifEpoch(){
+  if(!exifDate) return Date.now();
+  const d=exifDate.txt.replace(/[^\d]/g,'').slice(0,14); // YYYYMMDDHHMMSS
+  if(d.length<14) return Date.now();
+  return new Date(+d.slice(0,4), +d.slice(4,6)-1, +d.slice(6,8), +d.slice(8,10), +d.slice(10,12), +d.slice(12,14)).getTime();
+}
+function fmtDiff(d){
+  const s=d>0?'+':(d<0?'−':'±'); const ad=Math.abs(d);
+  const mm=Math.floor(ad/60), ss=ad%60;
+  return `${s}${mm? mm+' p ':''}${ss} mp`;
+}
+function addLogEntry(){
+  const d=currentDiffSeconds();
+  if(d===null){ setStatus('Nincs időbélyeg a képben — nincs mit naplózni.',true); return; }
+  const t={h:+rH.value,m:+rM.value,s:+rS.value};
+  const list=loadLog();
+  list.push({
+    epoch:exifEpoch(),
+    taken:exifDate.txt,
+    shown:`${pad(t.h)}:${pad(t.m)}:${pad(t.s)}`,
+    diff:d
+  });
+  list.sort((a,b)=>a.epoch-b.epoch);
+  persistLog(list);
+  renderLog();
+  setStatus('Mérés naplózva.');
+}
+function logText(){
+  const list=loadLog();
+  if(!list.length) return 'még nincs mentett mérés';
+  const lines=[];
+  lines.push('dátum                 eltérés     mp/24h');
+  for(let i=0;i<list.length;i++){
+    const e=list[i];
+    let rate='     –';
+    if(i>0){
+      const days=(e.epoch-list[i-1].epoch)/86400000;
+      if(days>0.02){ // legalább ~fél óra teljen el két mérés közt
+        const r=(e.diff-list[i-1].diff)/days;
+        rate=((r>=0?'+':'')+r.toFixed(1)).padStart(6);
+      }
+    }
+    lines.push(`${e.taken.replace(' (fájl ideje)','*').padEnd(20)}  ${fmtDiff(e.diff).padStart(9)}  ${rate}`);
+  }
+  if(list.length>=2){
+    const a=list[0], b=list[list.length-1];
+    const days=(b.epoch-a.epoch)/86400000;
+    if(days>0.04){
+      const rate=(b.diff-a.diff)/days;
+      lines.push('');
+      lines.push(`teljes időszak: ${rate>=0?'+':''}${rate.toFixed(1)} mp/nap  (${list.length} mérés, ${days.toFixed(1)} nap)`);
+    }
+  }
+  return lines.join('\n');
+}
+function renderLog(){ document.getElementById('log').textContent=logText(); }
+document.getElementById('logadd').addEventListener('click',addLogEntry);
+document.getElementById('logdl').addEventListener('click',()=>{
+  const a=document.createElement('a');
+  const d=new Date();
+  a.download=`watchcheck_naplo_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}.txt`;
+  a.href='data:text/plain;charset=utf-8,'+encodeURIComponent(logText());
+  document.body.appendChild(a); a.click(); a.remove();
+});
+document.getElementById('logclr').addEventListener('click',()=>{
+  if(confirm('Biztosan törlöd a teljes mérésnaplót?')){ persistLog([]); renderLog(); }
+});
+renderLog();
+// ---------- élő valós idő + Δ most ----------
+function now12s(){
+  const n=new Date();
+  return (n.getHours()*3600+n.getMinutes()*60+n.getSeconds()+n.getMilliseconds()/1000)%43200;
+}
+function diffToNow(){ // mutatók állása mínusz valós idő, előjeles, a közelebbi fél-naphoz
+  const target=(+rH.value%12)*3600+(+rM.value)*60+(+rS.value);
+  return (((target-now12s()+21600)%43200)+43200)%43200-21600;
+}
+setInterval(()=>{
+  const n=new Date();
+  document.getElementById('hdrnow').textContent=fmt12(n.getHours()*3600+n.getMinutes()*60+n.getSeconds());
+  const dm=Math.round(diffToNow());
+  const el=document.getElementById('hdrdriftm');
+  if(Math.abs(dm)<600){
+    el.textContent=(dm>0?'+':(dm<0?'−':'±'))+Math.abs(dm)+' mp';
+    el.style.color = dm>0 ? 'var(--warn)' : (dm<0 ? '#6fb2ff' : 'var(--ok)');
+  } else { el.textContent='> 10 p'; el.style.color=''; }
+},250);
+// ---------- óra-beállítás asszisztens ----------
+// Menet: korona ki (másodpercmutató áll) → az appban beállítod a BEFAGYOTT állást
+// (pöttyök vagy 🎤) → ⏱ → visszaszámlálás a valós idő beérkezéséig → MOST: korona be.
+let cdTimer=null, audioCtx=null;
+function beep(freq,ms){
+  try{
+    audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();
+    const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    o.frequency.value=freq; o.connect(g); g.connect(audioCtx.destination);
+    g.gain.setValueAtTime(0.15,audioCtx.currentTime);
+    o.start(); o.stop(audioCtx.currentTime+ms/1000);
+  }catch(e){}
+}
+function cdStop(){ if(cdTimer){clearInterval(cdTimer);cdTimer=null;} }
+function cdHide(){ cdStop(); document.getElementById('cdOverlay').classList.remove('on'); }
+document.getElementById('setw').addEventListener('click',()=>{
+  const ov=document.getElementById('cdOverlay');
+  if(ov.classList.contains('on')){ cdHide(); return; }
+  const target=(+rH.value%12)*3600 + (+rM.value)*60 + (+rS.value); // befagyott állás (12h)
+  const now=new Date();
+  const now12=(now.getHours()*3600+now.getMinutes()*60+now.getSeconds()+now.getMilliseconds()/1000)%43200;
+  let delta=((target-now12)+43200)%43200;
+  if(delta<30 || delta>3600){
+    setStatus(delta>3600
+      ? 'A beállított cél több mint 1 órára van — ellenőrizd az órán befagyasztott állást.'
+      : `Csak ${Math.floor(delta)} mp a tartalék — húzd a percmutatót legalább fél-egy perccel előrébb, állítsd be itt az új állást, és próbáld újra.`,true);
+    return;
+  }
+  ov.classList.add('on');
+  document.getElementById('cdBtns').classList.remove('on');
+  document.getElementById('cdNum').classList.remove('go');
+  document.getElementById('cdSub').textContent=`Cél: ${fmt12(target)} — nullánál nyomd be a koronát.`;
+  let lastWhole=null;
+  cdTimer=setInterval(()=>{
+    const n=new Date();
+    const n12=(n.getHours()*3600+n.getMinutes()*60+n.getSeconds()+n.getMilliseconds()/1000)%43200;
+    let rem=((target-n12)+43200)%43200;
+    if(rem>43000) rem=0; // átfordulás: elértük
+    const el=document.getElementById('cdNum');
+    if(rem<=0.05){
+      cdStop();
+      el.textContent='MOST!'; el.classList.add('go');
+      beep(1200,600);
+      document.getElementById('cdSub').textContent='Korona be — az óra a pontos időn jár.';
+      document.getElementById('cdBtns').classList.add('on');
+      return;
+    }
+    const mm=Math.floor(rem/60), ss=rem%60;
+    el.textContent = mm>0 ? `${mm}:${pad(Math.floor(ss))}` : ss.toFixed(1);
+    const w=Math.ceil(rem);
+    if(w<=5 && w!==lastWhole){ lastWhole=w; beep(880,90); }
+  },100);
+});
+document.getElementById('cdClose').addEventListener('click',cdHide);
+document.getElementById('cdBase').addEventListener('click',()=>{
+  const n=new Date();
+  const entry={
+    epoch:n.getTime(),
+    taken:`${n.getFullYear()}.${pad(n.getMonth()+1)}.${pad(n.getDate())} ${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())} (beállítás)`,
+    shown:fmt12(n.getHours()*3600+n.getMinutes()*60+n.getSeconds()),
+    diff:0
+  };
+  persistLog([entry]); renderLog(); cdHide();
+  setStatus('Napló törölve, 0 mp-es alapmérés rögzítve — innen indul az új járásmérés.');
+});
+
+function saveResult(){
+  if(!img) return;
+  const t={h:+rH.value,m:+rM.value,s:+rS.value};
+  const shownTxt=`${pad(t.h)}:${pad(t.m)}:${pad(t.s)}`;
+  const diffTxt=document.getElementById('diff').textContent;
+  const takenTxt=exifDate?exifDate.txt:'nincs időbélyeg';
+  const W=img.width, strip=Math.round(W*0.14);
+  const out=document.createElement('canvas');
+  out.width=W; out.height=img.height+strip;
+  const c=out.getContext('2d');
+  c.drawImage(img,0,0);
+  // felirat-sáv
+  c.fillStyle='#0b2a6b'; c.fillRect(0,img.height,W,strip);
+  c.fillStyle='#eef1f6';
+  const fs1=Math.round(strip*0.30), fs2=Math.round(strip*0.34);
+  c.font=`${fs1}px Arial`;
+  c.fillText(`Kép: ${takenTxt}  ·  Órán: ${shownTxt}`, Math.round(W*0.03), img.height+Math.round(strip*0.40));
+  c.font=`bold ${fs2}px Arial`;
+  c.fillText(`Eltérés: ${diffTxt}`, Math.round(W*0.03), img.height+Math.round(strip*0.82));
+  // fájlnév dátummal
+  let stamp;
+  if(exifDate){ stamp=exifDate.txt.replace(/[^\d]/g,'').slice(0,14); }
+  else { const d=new Date(); stamp=`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`; }
+  const a=document.createElement('a');
+  a.download=`watchcheck_${stamp}.jpg`;
+  a.href=out.toDataURL('image/jpeg',0.92);
+  document.body.appendChild(a); a.click(); a.remove();
+  setStatus('Mentve: '+a.download);
+}
+document.getElementById('reset').addEventListener('click',()=>{
+  document.getElementById('stage').classList.remove('on');
+  drop.classList.remove('small'); fileInput.value=''; img=null; exifDate=null;
+});
+window.addEventListener('resize',()=>{ if(img){ setupCanvas(); redraw(); } });
+</script>
+</body>
+</html>
